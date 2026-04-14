@@ -26,11 +26,17 @@ import java.util.Optional;
  */
 public class PdfLoader {
 
+    private static final java.util.logging.Logger LOG =
+            java.util.logging.Logger.getLogger(PdfLoader.class.getName());
+
     private final PdfRenderer renderer = new PdfRenderer();
 
     /**
      * Loads the given PDF file, rendering each page to a {@link javafx.scene.image.WritableImage}
      * and reconstructing any pdf-escroto annotations.
+     * <p>
+     * If an exception occurs after the {@link PDDocument} is opened, the document is closed
+     * before the exception is rethrown to avoid resource leaks.
      *
      * @param file the PDF file to load
      * @return a {@link PdfDocument} containing the loaded pages and annotations
@@ -38,25 +44,29 @@ public class PdfLoader {
      */
     public PdfDocument load(File file) throws IOException {
         var pdDoc = Loader.loadPDF(file);
-        var pages = new ArrayList<PdfPage>();
+        try {
+            var pages = new ArrayList<PdfPage>();
+            for (int i = 0; i < pdDoc.getNumberOfPages(); i++) {
+                var pdPage   = pdDoc.getPage(i);
+                var mediaBox = pdPage.getMediaBox();
+                var pdfPage  = new PdfPage(i, mediaBox.getWidth(), mediaBox.getHeight());
+                try {
+                    pdfPage.setRenderedImage(renderer.renderPage(pdDoc, i));
+                } catch (Exception e) {
+                    // May fail in headless environments (e.g., tests without JavaFX initialized)
+                    LOG.warning("Could not render page " + i + ": " + e.getMessage());
+                }
 
-        for (int i = 0; i < pdDoc.getNumberOfPages(); i++) {
-            var pdPage   = pdDoc.getPage(i);
-            var mediaBox = pdPage.getMediaBox();
-            var pdfPage  = new PdfPage(i, mediaBox.getWidth(), mediaBox.getHeight());
-            try {
-                pdfPage.setRenderedImage(renderer.renderPage(pdDoc, i));
-            } catch (Exception e) {
-                // Rendering may fail in headless environments; leave renderedImage null
+                for (var annot : pdPage.getAnnotations()) {
+                    parseAnnotation(pdDoc, annot).ifPresent(pdfPage::addAnnotation);
+                }
+                pages.add(pdfPage);
             }
-
-            for (var annot : pdPage.getAnnotations()) {
-                parseAnnotation(pdDoc, annot).ifPresent(pdfPage::addAnnotation);
-            }
-            pages.add(pdfPage);
+            return new PdfDocument(pdDoc, pages, file);
+        } catch (Exception e) {
+            pdDoc.close();
+            throw (e instanceof IOException ioe) ? ioe : new IOException("Failed to load PDF", e);
         }
-
-        return new PdfDocument(pdDoc, pages, file);
     }
 
     private Optional<Annotation> parseAnnotation(PDDocument pdDoc, PDAnnotation pdAnnotation) {
@@ -69,6 +79,15 @@ public class PdfLoader {
                         rect.getLowerLeftX(), rect.getLowerLeftY(),
                         rect.getWidth(), rect.getHeight());
                 ta.setText(freeText.getContents() != null ? freeText.getContents() : "");
+                // Recover font size from title popup field (/T), where writeText stored "fs=<size>"
+                String titleBar = freeText.getTitlePopup();
+                if (titleBar != null && titleBar.startsWith("fs=")) {
+                    try {
+                        ta.setFontSize(Float.parseFloat(titleBar.substring(3)));
+                    } catch (NumberFormatException ignored) {
+                        // malformed title bar — keep default fontSize
+                    }
+                }
                 return Optional.of(ta);
             }
         }

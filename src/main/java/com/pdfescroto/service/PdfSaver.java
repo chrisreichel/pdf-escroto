@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Serialises {@link PdfDocument} annotations back into a PDF file using PDFBox.
@@ -53,36 +54,37 @@ public class PdfSaver {
     public void save(PdfDocument document, File target) throws IOException {
         var pdDoc = document.getPdDocument();
 
+        // Remove ALL our checkbox fields once, before processing any page
+        removeOurCheckboxFields(pdDoc);
+
         for (var page : document.getPages()) {
             var pdPage = pdDoc.getPage(page.getPageIndex());
 
-            // Remove previously written pdf-escroto annotations from this page
+            // Remove previously written text/image/checkbox-widget annotations from this page
             var existing = new ArrayList<>(pdPage.getAnnotations());
             existing.removeIf(a -> {
                 if (a instanceof PDAnnotationMarkup markup) {
                     String subj = markup.getSubject();
-                    return TAG_TEXT.equals(subj) || TAG_IMAGE.equals(subj);
+                    if (TAG_TEXT.equals(subj) || TAG_IMAGE.equals(subj)) return true;
                 }
-                if (a instanceof PDAnnotationWidget widget) {
-                    return TAG_CHECKBOX.equals(widget.getAnnotationName());
-                }
-                return false;
+                return TAG_CHECKBOX.equals(a.getAnnotationName());
             });
             pdPage.setAnnotations(existing);
 
-            // Remove our AcroForm checkbox fields
-            removeOurCheckboxFields(pdDoc);
+            // Build a working list starting from the cleaned annotations
+            var workingList = new ArrayList<>(pdPage.getAnnotations());
 
-            // Write current annotations
+            // Write current annotations into the working list
             for (var annotation : page.getAnnotations()) {
                 if (annotation instanceof TextAnnotation ta) {
-                    writeText(pdPage, ta);
+                    writeText(workingList, ta);
                 } else if (annotation instanceof CheckboxAnnotation ca) {
-                    writeCheckbox(pdDoc, pdPage, ca);
+                    writeCheckbox(pdDoc, pdPage, workingList, ca);
                 } else if (annotation instanceof ImageAnnotation ia) {
-                    writeImage(pdDoc, pdPage, ia);
+                    writeImage(pdDoc, workingList, ia);
                 }
             }
+            pdPage.setAnnotations(workingList);
         }
 
         // Atomic write: save to temp file then rename over target
@@ -96,17 +98,40 @@ public class PdfSaver {
         }
     }
 
-    private void writeText(PDPage pdPage, TextAnnotation ta) throws IOException {
+    /**
+     * Writes a {@link TextAnnotation} as a {@link PDAnnotationFreeText} and adds it to
+     * {@code annotations}. The font size is persisted in the annotation's title bar field
+     * so that {@link PdfLoader} can recover it on re-open.
+     *
+     * @param annotations the working annotation list to append to
+     * @param ta          the text annotation to write
+     * @throws IOException if the annotation cannot be constructed
+     */
+    private void writeText(List<PDAnnotation> annotations, TextAnnotation ta) throws IOException {
         var rect  = toPdRect(ta);
         var annot = new PDAnnotationFreeText();
         annot.setSubject(TAG_TEXT);
         annot.setContents(ta.getText());
         annot.setRectangle(rect);
+        // Store font size in the title popup field (/T) so it can be recovered by PdfLoader
+        annot.setTitlePopup("fs=" + (int) ta.getFontSize());
         annot.setDefaultAppearance("/Helvetica " + (int) ta.getFontSize() + " Tf 0 0 0 rg");
-        pdPage.getAnnotations().add(annot);
+        annotations.add(annot);
     }
 
-    private void writeCheckbox(PDDocument pdDoc, PDPage pdPage, CheckboxAnnotation ca) throws IOException {
+    /**
+     * Writes a {@link CheckboxAnnotation} as an AcroForm {@link PDCheckBox} and adds its
+     * widget to {@code annotations}.
+     *
+     * @param pdDoc       the PDF document (needed to obtain/create the AcroForm)
+     * @param pdPage      the page the widget belongs to (needed for {@code widget.setPage})
+     * @param annotations the working annotation list to append to
+     * @param ca          the checkbox annotation to write
+     * @throws IOException if the annotation cannot be constructed
+     */
+    private void writeCheckbox(PDDocument pdDoc, PDPage pdPage,
+                                List<PDAnnotation> annotations,
+                                CheckboxAnnotation ca) throws IOException {
         var acroForm = getOrCreateAcroForm(pdDoc);
         var checkbox = new PDCheckBox(acroForm);
         checkbox.setPartialName(CB_PREFIX + ca.getId().replace("-", ""));
@@ -121,7 +146,7 @@ public class PdfSaver {
                 (float) ca.getWidth(), (float) ca.getHeight()));
 
         acroForm.getFields().add(checkbox);
-        pdPage.getAnnotations().add(widget);
+        annotations.add(widget);
 
         if (ca.isChecked()) {
             checkbox.check();
@@ -130,14 +155,25 @@ public class PdfSaver {
         }
     }
 
-    private void writeImage(PDDocument pdDoc, PDPage pdPage, ImageAnnotation ia) throws IOException {
+    /**
+     * Writes an {@link ImageAnnotation} as a {@link PDAnnotationRubberStamp} and adds it to
+     * {@code annotations}.
+     *
+     * @param pdDoc       the PDF document (needed to embed the image XObject)
+     * @param annotations the working annotation list to append to
+     * @param ia          the image annotation to write
+     * @throws IOException if the image cannot be embedded
+     */
+    private void writeImage(PDDocument pdDoc,
+                             List<PDAnnotation> annotations,
+                             ImageAnnotation ia) throws IOException {
         if (ia.getImageData() == null) return;
         var rect  = toPdRect(ia);
         var stamp = new PDAnnotationRubberStamp();
         stamp.setSubject(TAG_IMAGE);
         stamp.setRectangle(rect);
 
-        var pdImage     = PDImageXObject.createFromByteArray(pdDoc, ia.getImageData(), "img");
+        var pdImage      = PDImageXObject.createFromByteArray(pdDoc, ia.getImageData(), "img");
         var appearStream = new PDAppearanceStream(pdDoc);
         appearStream.setResources(new PDResources());
         appearStream.setBBox(rect);
@@ -148,7 +184,7 @@ public class PdfSaver {
         appearDict.setNormalAppearance(appearStream);
         stamp.setAppearance(appearDict);
 
-        pdPage.getAnnotations().add(stamp);
+        annotations.add(stamp);
     }
 
     private PDRectangle toPdRect(Annotation a) {
