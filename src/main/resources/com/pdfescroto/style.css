@@ -1,0 +1,14 @@
+.root {
+    -fx-base: #2a2a2a;
+    -fx-background: #2a2a2a;
+    -fx-control-inner-background: #3a3a3a;
+    -fx-text-fill: #dddddd;
+}
+.tool-bar { -fx-background-color: #333333; -fx-padding: 4 8 4 8; }
+.menu-bar  { -fx-background-color: #1e1e1e; }
+.menu-bar .label { -fx-text-fill: #cccccc; }
+.scroll-pane { -fx-background-color: #555555; }
+.scroll-pane > .viewport { -fx-background-color: #555555; }
+.properties-panel { -fx-background-color: #2a2a2a; -fx-padding: 10; }
+.properties-panel .label { -fx-text-fill: #aaaaaa; -fx-font-size: 11px; }
+.properties-panel .text-field { -fx-background-color: #3a3a3a; -fx-text-fill: #ffffff; }
