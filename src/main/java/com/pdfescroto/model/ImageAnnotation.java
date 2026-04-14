@@ -1,6 +1,7 @@
 package com.pdfescroto.model;
 
 import javafx.scene.image.Image;
+import java.util.Arrays;
 
 /**
  * An annotation that places an image on a PDF page.
@@ -26,11 +27,11 @@ public class ImageAnnotation extends Annotation {
         super(x, y, width, height);
     }
 
-    /** Returns the raw image bytes used for PDF serialization. */
-    public byte[] getImageData()         { return imageData; }
+    /** Returns a defensive copy of the raw image bytes used for PDF serialization. */
+    public byte[] getImageData()         { return imageData == null ? null : Arrays.copyOf(imageData, imageData.length); }
 
-    /** Sets the raw image bytes used for PDF serialization. */
-    public void   setImageData(byte[] d) { this.imageData = d; }
+    /** Sets the raw image bytes used for PDF serialization, storing a defensive copy. */
+    public void   setImageData(byte[] d) { this.imageData = d == null ? null : Arrays.copyOf(d, d.length); }
 
     /** Returns the cached JavaFX {@link Image} used for canvas rendering. */
     public Image  getFxImage()           { return fxImage; }

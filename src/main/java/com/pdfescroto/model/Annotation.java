@@ -15,6 +15,10 @@ public abstract class Annotation {
     private double height;  // PDF pts
 
     protected Annotation(double x, double y, double width, double height) {
+        if (width < 0 || height < 0) {
+            throw new IllegalArgumentException(
+                "Annotation dimensions must be non-negative; got width=" + width + ", height=" + height);
+        }
         this.x = x; this.y = y; this.width = width; this.height = height;
     }
 

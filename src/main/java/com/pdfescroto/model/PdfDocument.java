@@ -3,7 +3,9 @@ package com.pdfescroto.model;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import java.io.File;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Represents an open PDF document, wrapping PDFBox's {@link PDDocument} together
@@ -25,6 +27,8 @@ public class PdfDocument implements AutoCloseable {
      * @param sourceFile the file from which the document was loaded, or {@code null} for new documents
      */
     public PdfDocument(PDDocument pdDocument, List<PdfPage> pages, File sourceFile) {
+        Objects.requireNonNull(pdDocument, "pdDocument must not be null");
+        Objects.requireNonNull(pages, "pages must not be null");
         this.pdDocument = pdDocument;
         this.pages      = pages;
         this.sourceFile = sourceFile;
@@ -34,7 +38,7 @@ public class PdfDocument implements AutoCloseable {
     public PDDocument    getPdDocument()      { return pdDocument; }
 
     /** Returns the list of pages in this document. */
-    public List<PdfPage> getPages()           { return pages; }
+    public List<PdfPage> getPages()           { return Collections.unmodifiableList(pages); }
 
     /** Returns the source {@link File} from which this document was loaded. */
     public File          getSourceFile()      { return sourceFile; }
