@@ -55,6 +55,10 @@
                 <version>0.0.8</version>
                 <configuration>
                     <mainClass>com.pdftapir.PdfTapirApp</mainClass>
+                    <options>
+                        <option>-Xdock:icon=${project.basedir}/packaging/icons/ICON.icns</option>
+                        <option>-Xdock:name=PDF Tapir</option>
+                    </options>
                 </configuration>
             </plugin>
             <plugin>
