@@ -4,6 +4,7 @@ import com.pdfescroto.model.*;
 import org.apache.pdfbox.cos.COSDictionary;
 import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
 import java.util.Base64;
 import org.apache.pdfbox.pdmodel.*;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
@@ -16,13 +17,17 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
- * Loads a PDF file into a {@link PdfDocument}, reconstructing any
- * pdf-escroto annotations that were previously written by {@link PdfSaver}.
+ * Loads a PDF file into a {@link PdfDocument}, reconstructing editable
+ * pdf-escroto annotations from the private hybrid package written by
+ * {@link PdfSaver}.
  * <p>
- * The loader identifies annotations by the tags embedded during save:
+ * For PDFs saved by older versions, the loader still recognises legacy PDF
+ * annotation objects by their embedded tags:
  * <ul>
  *   <li>Text annotations: {@link PDAnnotationFreeText} with subject {@code "pdf-escroto-text"}</li>
  *   <li>Checkbox annotations: {@link PDAnnotationWidget} with annotation name {@code "pdf-escroto-checkbox"}</li>
@@ -35,43 +40,78 @@ public class PdfLoader {
             java.util.logging.Logger.getLogger(PdfLoader.class.getName());
 
     private final PdfRenderer renderer = new PdfRenderer();
+    private final PdfEscrotoPackageService packageService = new PdfEscrotoPackageService();
 
     /**
-     * Loads the given PDF file, rendering each page to a {@link javafx.scene.image.WritableImage}
-     * and reconstructing any pdf-escroto annotations.
-     * <p>
-     * If an exception occurs after the {@link PDDocument} is opened, the document is closed
-     * before the exception is rethrown to avoid resource leaks.
-     *
-     * @param file the PDF file to load
-     * @return a {@link PdfDocument} containing the loaded pages and annotations
-     * @throws IOException if the file cannot be read or parsed
+     * Attempts to load the PDF without a password.
+     * Throws {@link InvalidPasswordException} if the file is password-protected.
      */
     public PdfDocument load(File file) throws IOException {
-        var pdDoc = Loader.loadPDF(file);
-        try {
-            var pages = new ArrayList<PdfPage>();
-            for (int i = 0; i < pdDoc.getNumberOfPages(); i++) {
-                var pdPage   = pdDoc.getPage(i);
-                var mediaBox = pdPage.getMediaBox();
-                var pdfPage  = new PdfPage(i, mediaBox.getWidth(), mediaBox.getHeight());
-                try {
-                    pdfPage.setRenderedImage(renderer.renderPage(pdDoc, i));
-                } catch (Exception e) {
-                    // May fail in headless environments (e.g., tests without JavaFX initialized)
-                    LOG.warning("Could not render page " + i + ": " + e.getMessage());
-                }
+        return load(file, null);
+    }
 
+    /**
+     * Loads the PDF with an optional password.
+     *
+     * @param file     the PDF file to load
+     * @param password the decryption password, or {@code null} / empty for unencrypted files
+     * @throws InvalidPasswordException if the password is wrong or missing for an encrypted file
+     * @throws IOException              if the file cannot be read
+     */
+    public PdfDocument load(File file, String password) throws IOException {
+        var pdDoc = (password != null && !password.isEmpty())
+                ? Loader.loadPDF(file, password)
+                : Loader.loadPDF(file);
+        try {
+            var packageData = packageService.read(pdDoc);
+            if (packageData.isPresent()) {
+                byte[] basePdfBytes = packageData.get().basePdfBytes();
+                pdDoc.close();
+                var baseDoc = Loader.loadPDF(basePdfBytes);
+                try {
+                    var document = buildDocument(baseDoc, file, packageData.get().annotationsByPage());
+                    document.setCleanBasePdfBytes(basePdfBytes);
+                    return document;
+                } catch (Exception e) {
+                    baseDoc.close();
+                    throw e;
+                }
+            }
+
+            return buildDocument(pdDoc, file, null);
+        } catch (Exception e) {
+            if (!pdDoc.getDocument().isClosed()) {
+                pdDoc.close();
+            }
+            throw (e instanceof IOException ioe) ? ioe : new IOException("Failed to load PDF", e);
+        }
+    }
+
+    private PdfDocument buildDocument(PDDocument pdDoc,
+                                      File sourceFile,
+                                      Map<Integer, List<Annotation>> packagedAnnotations) throws IOException {
+        var pages = new ArrayList<PdfPage>();
+        for (int i = 0; i < pdDoc.getNumberOfPages(); i++) {
+            var pdPage   = pdDoc.getPage(i);
+            var mediaBox = pdPage.getMediaBox();
+            var pdfPage  = new PdfPage(i, mediaBox.getWidth(), mediaBox.getHeight());
+            try {
+                pdfPage.setRenderedImage(renderer.renderPage(pdDoc, i));
+            } catch (Exception e) {
+                // May fail in headless environments (e.g., tests without JavaFX initialized)
+                LOG.warning("Could not render page " + i + ": " + e.getMessage());
+            }
+
+            if (packagedAnnotations != null) {
+                packagedAnnotations.getOrDefault(i, List.of()).forEach(pdfPage::addAnnotation);
+            } else {
                 for (var annot : pdPage.getAnnotations()) {
                     parseAnnotation(pdDoc, annot).ifPresent(pdfPage::addAnnotation);
                 }
-                pages.add(pdfPage);
             }
-            return new PdfDocument(pdDoc, pages, file);
-        } catch (Exception e) {
-            pdDoc.close();
-            throw (e instanceof IOException ioe) ? ioe : new IOException("Failed to load PDF", e);
+            pages.add(pdfPage);
         }
+        return new PdfDocument(pdDoc, pages, sourceFile);
     }
 
     private Optional<Annotation> parseAnnotation(PDDocument pdDoc, PDAnnotation pdAnnotation) {

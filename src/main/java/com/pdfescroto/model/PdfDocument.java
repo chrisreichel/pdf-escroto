@@ -18,6 +18,8 @@ public class PdfDocument implements AutoCloseable {
     private final PDDocument    pdDocument;
     private final List<PdfPage> pages;
     private       File          sourceFile;
+    private       boolean       encrypted;
+    private       byte[]        cleanBasePdfBytes;
 
     /**
      * Creates a PdfDocument wrapping the given PDFBox document.
@@ -32,6 +34,7 @@ public class PdfDocument implements AutoCloseable {
         this.pdDocument = pdDocument;
         this.pages      = pages;
         this.sourceFile = sourceFile;
+        this.encrypted  = pdDocument.isEncrypted();
     }
 
     /** Returns the underlying PDFBox {@link PDDocument}. */
@@ -45,6 +48,36 @@ public class PdfDocument implements AutoCloseable {
 
     /** Sets the source file (e.g. after a Save As operation). */
     public void          setSourceFile(File f){ this.sourceFile = f; }
+
+    /** Returns {@code true} if the document is currently encrypted. */
+    public boolean       isEncrypted()         { return encrypted; }
+
+    /** Updates the tracked encryption state (call after encrypt/decrypt + save). */
+    public void          setEncrypted(boolean v){ this.encrypted = v; }
+
+    /**
+     * Returns a defensive copy of the clean base PDF used for hybrid flattened saves,
+     * or {@code null} if this document has not yet been saved in that format.
+     */
+    public byte[] getCleanBasePdfBytes() {
+        return cleanBasePdfBytes == null ? null : java.util.Arrays.copyOf(cleanBasePdfBytes, cleanBasePdfBytes.length);
+    }
+
+    /** Stores the clean base PDF bytes used to rebuild flattened output on future saves. */
+    public void setCleanBasePdfBytes(byte[] bytes) {
+        this.cleanBasePdfBytes = bytes == null ? null : java.util.Arrays.copyOf(bytes, bytes.length);
+    }
+
+    /**
+     * Replaces the entire page list in-place. Used by merge and page-removal services
+     * after structural changes to the underlying {@link PDDocument}.
+     *
+     * @param newPages the new page list (must not be {@code null})
+     */
+    public void replacePages(List<PdfPage> newPages) {
+        pages.clear();
+        pages.addAll(newPages);
+    }
 
     /**
      * Closes the underlying {@link PDDocument}, releasing all associated resources.

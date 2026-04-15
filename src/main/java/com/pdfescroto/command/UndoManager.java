@@ -82,4 +82,13 @@ public class UndoManager {
      * @return {@code true} when the redo stack is non-empty
      */
     public boolean canRedo() { return !redoStack.isEmpty(); }
+
+    /**
+     * Clears both the undo and redo history. Use after structural document changes
+     * (merge, page removal) that invalidate existing command history.
+     */
+    public void clear() {
+        undoStack.clear();
+        redoStack.clear();
+    }
 }

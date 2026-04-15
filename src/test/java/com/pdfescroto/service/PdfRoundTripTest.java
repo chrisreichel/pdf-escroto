@@ -1,12 +1,11 @@
 package com.pdfescroto.service;
 
 import com.pdfescroto.model.*;
+import org.apache.pdfbox.cos.COSName;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
-import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationRubberStamp;
-import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationWidget;
-import org.apache.pdfbox.pdmodel.interactive.form.PDCheckBox;
 import org.junit.jupiter.api.*;
 import java.awt.Graphics;
 import java.awt.image.BufferedImage;
@@ -19,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class PdfRoundTripTest {
 
     private File tempFile;
+    private static final COSName PDF_ESCROTO_PACKAGE = COSName.getPDFName("PEScrotoPackage");
 
     @BeforeEach
     void setUp() throws Exception {
@@ -118,66 +118,102 @@ class PdfRoundTripTest {
     }
 
     @Test
-    void checkedCheckboxWritesViewerVisibleAppearance() throws Exception {
-        var saver = new PdfSaver();
+    void saveFlattensVisibleItemsButKeepsEditablePdfEscrotoPackage() throws Exception {
+        var loader = new PdfLoader();
+        var saver  = new PdfSaver();
 
-        try (var doc = new PDDocument()) {
-            doc.addPage(new PDPage(PDRectangle.A4));
-            var pageModel = new PdfPage(0, PDRectangle.A4.getWidth(), PDRectangle.A4.getHeight());
-            var pdf = new PdfDocument(doc, java.util.List.of(pageModel), tempFile);
+        var doc  = loader.load(tempFile);
+        var page = doc.getPages().get(0);
 
-            var cb = new CheckboxAnnotation(50, 200, 20, 20);
-            cb.setLabel("agree");
-            cb.setChecked(true);
-            pageModel.addAnnotation(cb);
+        var text = new TextAnnotation(50, 500, 120, 24);
+        text.setText("Flattened");
+        text.setFontSize(16f);
+        text.setFontColor("#0033cc");
+        page.addAnnotation(text);
 
-            saver.save(pdf, tempFile);
-        }
+        var checkbox = new CheckboxAnnotation(50, 450, 24, 24);
+        checkbox.setChecked(true);
+        checkbox.setCheckmarkColor("#008800");
+        page.addAnnotation(checkbox);
+
+        var image = new ImageAnnotation(50, 100, 30, 30);
+        image.setImageData(redPngBytes());
+        page.addAnnotation(image);
+
+        saver.save(doc, tempFile);
+        doc.close();
 
         try (var saved = org.apache.pdfbox.Loader.loadPDF(tempFile)) {
-            var widget = (PDAnnotationWidget) saved.getPage(0).getAnnotations().get(0);
-            var field = (PDCheckBox) saved.getDocumentCatalog().getAcroForm().getFieldTree().iterator().next();
+            assertTrue(saved.getPage(0).getAnnotations().isEmpty(),
+                    "flattened PDF should not expose pdf-escroto items as movable annotations/widgets");
+            var acroForm = saved.getDocumentCatalog().getAcroForm();
+            assertTrue(acroForm == null || !acroForm.getFieldTree().iterator().hasNext(),
+                    "flattened PDF should not expose pdf-escroto checkboxes as form fields");
+            assertNotNull(saved.getDocumentCatalog().getCOSObject().getDictionaryObject(PDF_ESCROTO_PACKAGE),
+                    "editable pdf-escroto package should be stored privately in the PDF");
 
-            assertNotNull(widget.getAppearance(), "checkbox widget should have an appearance dictionary");
-            assertFalse(field.getOnValue().isBlank(), "checkbox should define a concrete on-state value");
-            assertEquals(field.getOnValue(), widget.getAppearanceState().getName(),
-                    "checked checkbox should use its on-state appearance");
-            assertTrue(field.isChecked(), "saved checkbox field should be checked in the raw PDF");
+            var rendered = new PDFRenderer(saved).renderImageWithDPI(0, 72);
+            int sampleX = 65;
+            int sampleY = Math.round(PDRectangle.A4.getHeight() - 115);
+            var sampled = new java.awt.Color(rendered.getRGB(sampleX, sampleY));
+            assertTrue(sampled.getRed() > 180 && sampled.getGreen() < 100 && sampled.getBlue() < 100,
+                    "flattened image annotation should be drawn into visible page content");
         }
+
+        var reloaded = loader.load(tempFile);
+        var annotations = reloaded.getPages().get(0).getAnnotations();
+        assertEquals(3, annotations.size(), "private package should restore editable pdf-escroto items");
+        assertInstanceOf(TextAnnotation.class, annotations.get(0));
+        assertInstanceOf(CheckboxAnnotation.class, annotations.get(1));
+        assertInstanceOf(ImageAnnotation.class, annotations.get(2));
+        assertEquals("Flattened", ((TextAnnotation) annotations.get(0)).getText());
+        assertTrue(((CheckboxAnnotation) annotations.get(1)).isChecked());
+        assertNotNull(((ImageAnnotation) annotations.get(2)).getImageData());
+        reloaded.close();
     }
 
     @Test
-    void imageAnnotationWritesLocalAppearanceBoundingBox() throws Exception {
-        var saver = new PdfSaver();
+    void reloadEditAndResaveUpdatesPrivatePackageWithoutReintroducingPdfAnnotations() throws Exception {
+        var loader = new PdfLoader();
+        var saver  = new PdfSaver();
 
-        try (var doc = new PDDocument()) {
-            doc.addPage(new PDPage(PDRectangle.A4));
-            var pageModel = new PdfPage(0, PDRectangle.A4.getWidth(), PDRectangle.A4.getHeight());
-            var pdf = new PdfDocument(doc, java.util.List.of(pageModel), tempFile);
+        var doc  = loader.load(tempFile);
+        var page = doc.getPages().get(0);
+        var text = new TextAnnotation(50, 500, 120, 24);
+        text.setText("Before");
+        page.addAnnotation(text);
+        saver.save(doc, tempFile);
+        doc.close();
 
-            var bim = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
-            Graphics g = bim.getGraphics();
-            g.setColor(java.awt.Color.RED);
-            g.fillRect(0, 0, 4, 4);
-            g.dispose();
-            var bos = new ByteArrayOutputStream();
-            ImageIO.write(bim, "PNG", bos);
-
-            var ia = new ImageAnnotation(50, 100, 100, 100);
-            ia.setImageData(bos.toByteArray());
-            pageModel.addAnnotation(ia);
-
-            saver.save(pdf, tempFile);
-        }
+        var reloaded = loader.load(tempFile);
+        var loadedText = (TextAnnotation) reloaded.getPages().get(0).getAnnotations().get(0);
+        loadedText.setText("After");
+        loadedText.setX(200);
+        saver.save(reloaded, tempFile);
+        reloaded.close();
 
         try (var saved = org.apache.pdfbox.Loader.loadPDF(tempFile)) {
-            var stamp = (PDAnnotationRubberStamp) saved.getPage(0).getAnnotations().get(0);
-            var bbox = stamp.getAppearance().getNormalAppearance().getAppearanceStream().getBBox();
-
-            assertEquals(0, bbox.getLowerLeftX(), 0.01, "appearance BBox should start at local x=0");
-            assertEquals(0, bbox.getLowerLeftY(), 0.01, "appearance BBox should start at local y=0");
-            assertEquals(100, bbox.getWidth(), 0.01);
-            assertEquals(100, bbox.getHeight(), 0.01);
+            assertTrue(saved.getPage(0).getAnnotations().isEmpty(),
+                    "re-saving a hybrid PDF should keep pdf-escroto items flattened");
         }
+
+        var edited = loader.load(tempFile);
+        var annotations = edited.getPages().get(0).getAnnotations();
+        assertEquals(1, annotations.size(), "private metadata should contain the current editable item once");
+        var editedText = (TextAnnotation) annotations.get(0);
+        assertEquals("After", editedText.getText());
+        assertEquals(200, editedText.getX(), 0.5);
+        edited.close();
+    }
+
+    private byte[] redPngBytes() throws Exception {
+        var bim = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
+        Graphics g = bim.getGraphics();
+        g.setColor(java.awt.Color.RED);
+        g.fillRect(0, 0, 4, 4);
+        g.dispose();
+        var bos = new ByteArrayOutputStream();
+        ImageIO.write(bim, "PNG", bos);
+        return bos.toByteArray();
     }
 }
