@@ -55,6 +55,10 @@ jobs:
         shell: bash
         run: cp target/pdf-tapir-${{ env.VERSION }}.jar target/lib/
 
+      - name: Install fakeroot (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y fakeroot
+
       - name: Run jpackage
         shell: bash
         run: |
@@ -68,9 +72,14 @@ jobs:
             --type ${{ matrix.jpackage-type }} \
             --dest target/installer/
 
+      - name: List installer output
+        shell: bash
+        run: ls -lh target/installer/
+
       - name: Upload installer to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: target/installer/${{ matrix.artifact-glob }}
+          fail_on_unmatched_files: true
           draft: false
           prerelease: false
