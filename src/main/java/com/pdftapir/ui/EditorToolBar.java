@@ -37,10 +37,11 @@ public class EditorToolBar {
         node.setPadding(new Insets(4, 8, 4, 8));
         node.setSpacing(6);
 
-        var selectBtn = toolButton("↖ Select",   Tool.SELECT);
-        var textBtn   = toolButton("T Text",     Tool.TEXT);
-        var cbBtn     = toolButton("☑ Checkbox", Tool.CHECKBOX);
-        var imgBtn    = toolButton("🖼 Image",    Tool.IMAGE);
+        var selectBtn   = toolButton("↖ Select",   Tool.SELECT);
+        var textBtn     = toolButton("T Text",     Tool.TEXT);
+        var textareaBtn = toolButton("¶ Textarea", Tool.TEXTAREA);
+        var cbBtn       = toolButton("☑ Checkbox", Tool.CHECKBOX);
+        var imgBtn      = toolButton("🖼 Image",    Tool.IMAGE);
         selectBtn.setSelected(true);
 
         var sep = new Separator(Orientation.VERTICAL);
@@ -71,7 +72,7 @@ public class EditorToolBar {
             }
         });
 
-        node.getChildren().addAll(selectBtn, textBtn, cbBtn, imgBtn,
+        node.getChildren().addAll(selectBtn, textBtn, textareaBtn, cbBtn, imgBtn,
                 sep, prevBtn, pageLabel, nextBtn, spacer, zoomOutBtn, zoomLabel, zoomInBtn, saveBtn);
     }
 
@@ -79,11 +80,14 @@ public class EditorToolBar {
         var btn = new ToggleButton(label);
         btn.setToggleGroup(toggleGroup);
         btn.setOnAction(e -> { if (canvas != null) canvas.setActiveTool(tool); });
+        btn.setPrefWidth(110);
+        btn.setPrefHeight(36);
+        btn.setStyle("-fx-font-size: 14px;");
         toolButtons.put(tool, btn);
         return btn;
     }
 
-    private void navigatePage(int delta) {
+    public void navigatePage(int delta) {
         if (canvas == null || doc == null) return;
         int next = currentPage + delta;
         if (next < 0 || next >= doc.getPages().size()) return;

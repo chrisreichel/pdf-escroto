@@ -44,11 +44,12 @@ mvn test
 
 ### Annotations
 
-Three annotation types can be placed on any page:
+Four annotation types can be placed on any page:
 
 | Type | Placement | Properties |
 |------|-----------|------------|
 | **Text box** | Click and drag to draw | Content, font size, bold, italic, alignment (left / centre / right) |
+| **Textarea** | Click and drag to draw | Multi-line content with word wrap, font size, bold, italic, alignment, font color, background fill, border, vertical alignment (top / middle / bottom) |
 | **Checkbox** | Click and drag to place | Label, checked state, borderless mode |
 | **Image** | Click and drag, then pick a file | Repositionable and resizable |
 
@@ -62,6 +63,16 @@ Select a text annotation with the Select tool to access formatting in the right 
 - **Alignment** — left, centre, or right
 - **Font size** — numeric input
 
+Select a textarea annotation to access extended formatting:
+
+- **Content** — multi-line text input
+- **Font size, bold, italic, alignment** — same as text box
+- **Font color** — color picker
+- **Word wrap** — enabled by default; disable for single-line-per-paragraph mode
+- **Vertical alignment** — top, middle, or bottom within the bounding box
+- **Background fill** — solid color or transparent (default)
+- **Border** — show or hide the bounding box border (visible by default)
+
 Select a checkbox annotation to toggle **borderless mode** (renders the checkmark without a surrounding border).
 
 ### Page navigation and zoom
@@ -69,9 +80,12 @@ Select a checkbox annotation to toggle **borderless mode** (renders the checkmar
 | Action | How |
 |--------|-----|
 | Previous / next page | **◀ ▶** toolbar buttons |
+| Scroll through pages | **View → Scroll with mouse wheel** (toggle; scrolls to next/previous page at boundaries) |
 | Zoom in | **View → Zoom In** (`Ctrl+=`) |
 | Zoom out | **View → Zoom Out** (`Ctrl+-`) |
 | Fit page to window | **View → Fit Page** (`Ctrl+0`) |
+
+The scroll preference is saved to `~/.pdftapir/preferences.properties` and restored on next launch.
 
 ### Document operations
 
@@ -104,6 +118,7 @@ Select a tool from the toolbar before interacting with the canvas:
 |------|-------------|
 | **Select** | Click to select an annotation; drag to move it; drag a corner handle to resize it |
 | **Text** | Click and drag to draw a text box |
+| **Textarea** | Click and drag to draw a multi-line text area |
 | **Checkbox** | Click and drag to place a checkbox |
 | **Image** | Click and drag to place an image; a file picker opens after the drag |
 
@@ -112,6 +127,7 @@ Select a tool from the toolbar before interacting with the canvas:
 Select an annotation with the Select tool to show its properties in the right panel:
 
 - **Text box** — edit the text content, font size, bold/italic, and alignment
+- **Textarea** — edit multi-line content, font size, bold/italic, alignment, font color, wrap, vertical alignment, background fill, and border
 - **Checkbox** — edit the label, toggle the checked state, and toggle borderless mode
 - **Image** — reposition and resize via the properties fields or by dragging on the canvas
 

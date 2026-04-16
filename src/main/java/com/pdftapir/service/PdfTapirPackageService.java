@@ -90,6 +90,18 @@ class PdfTapirPackageService {
                     props.setProperty(prefix + "bold", Boolean.toString(ta.isBold()));
                     props.setProperty(prefix + "italic", Boolean.toString(ta.isItalic()));
                     props.setProperty(prefix + "textAlign", nullToEmpty(ta.getTextAlign()));
+                } else if (annotation instanceof TextareaAnnotation txa) {
+                    props.setProperty(prefix + "type", "textarea");
+                    props.setProperty(prefix + "content", b64(txa.getContent()));
+                    props.setProperty(prefix + "fontSize", Float.toString(txa.getFontSize()));
+                    props.setProperty(prefix + "fontColor", nullToEmpty(txa.getFontColor()));
+                    props.setProperty(prefix + "bold", Boolean.toString(txa.isBold()));
+                    props.setProperty(prefix + "italic", Boolean.toString(txa.isItalic()));
+                    props.setProperty(prefix + "textAlign", nullToEmpty(txa.getTextAlign()));
+                    props.setProperty(prefix + "wrap", Boolean.toString(txa.isWrap()));
+                    props.setProperty(prefix + "backgroundFill", nullToEmpty(txa.getBackgroundFill()));
+                    props.setProperty(prefix + "showBorder", Boolean.toString(txa.isShowBorder()));
+                    props.setProperty(prefix + "verticalAlign", nullToEmpty(txa.getVerticalAlign()));
                 } else if (annotation instanceof CheckboxAnnotation ca) {
                     props.setProperty(prefix + "type", "checkbox");
                     props.setProperty(prefix + "label", b64(ca.getLabel()));
@@ -125,10 +137,11 @@ class PdfTapirPackageService {
             if (pageIndex < 0) continue;
 
             Annotation annotation = switch (props.getProperty(prefix + "type", "")) {
-                case "text" -> textAnnotation(props, prefix);
+                case "text"     -> textAnnotation(props, prefix);
+                case "textarea" -> textareaAnnotation(props, prefix);
                 case "checkbox" -> checkboxAnnotation(props, prefix);
-                case "image" -> imageAnnotation(props, prefix);
-                default -> null;
+                case "image"    -> imageAnnotation(props, prefix);
+                default         -> null;
             };
             if (annotation != null) {
                 byPage.computeIfAbsent(pageIndex, ignored -> new ArrayList<>()).add(annotation);
@@ -148,6 +161,22 @@ class PdfTapirPackageService {
         ta.setItalic(Boolean.parseBoolean(props.getProperty(prefix + "italic", "false")));
         ta.setTextAlign(props.getProperty(prefix + "textAlign", "LEFT"));
         return ta;
+    }
+
+    private TextareaAnnotation textareaAnnotation(Properties props, String prefix) {
+        var txa = new TextareaAnnotation(geom(props, prefix, "x"), geom(props, prefix, "y"),
+                geom(props, prefix, "w"), geom(props, prefix, "h"));
+        txa.setContent(unb64(props.getProperty(prefix + "content", "")));
+        txa.setFontSize(parseFloat(props.getProperty(prefix + "fontSize"), 12f));
+        txa.setFontColor(props.getProperty(prefix + "fontColor", "#000000"));
+        txa.setBold(Boolean.parseBoolean(props.getProperty(prefix + "bold", "false")));
+        txa.setItalic(Boolean.parseBoolean(props.getProperty(prefix + "italic", "false")));
+        txa.setTextAlign(props.getProperty(prefix + "textAlign", "LEFT"));
+        txa.setWrap(Boolean.parseBoolean(props.getProperty(prefix + "wrap", "true")));
+        txa.setBackgroundFill(props.getProperty(prefix + "backgroundFill", "transparent"));
+        txa.setShowBorder(Boolean.parseBoolean(props.getProperty(prefix + "showBorder", "true")));
+        txa.setVerticalAlign(props.getProperty(prefix + "verticalAlign", "TOP"));
+        return txa;
     }
 
     private CheckboxAnnotation checkboxAnnotation(Properties props, String prefix) {

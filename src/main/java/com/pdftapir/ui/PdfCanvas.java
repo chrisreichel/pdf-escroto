@@ -154,6 +154,66 @@ public class PdfCanvas extends Canvas {
                 gc.setTextAlign(TextAlignment.LEFT);
             }
 
+        } else if (a instanceof TextareaAnnotation txa) {
+            // Background fill
+            if (!txa.getBackgroundFill().equalsIgnoreCase("transparent")) {
+                try { gc.setFill(Color.web(txa.getBackgroundFill())); }
+                catch (Exception ignored) { gc.setFill(Color.WHITE); }
+                gc.fillRect(cx, cy, cw, ch);
+            }
+            // Border
+            if (txa.isShowBorder() || selected) {
+                gc.setStroke(selected ? Color.DODGERBLUE : Color.rgb(80, 80, 80, 0.8));
+                gc.setLineWidth(selected ? 2.0 : 1.0);
+                gc.strokeRect(cx, cy, cw, ch);
+            }
+            // Text
+            FontWeight weight   = txa.isBold() ? FontWeight.BOLD : FontWeight.NORMAL;
+            double     fontSize = txa.getFontSize() * scale.get();
+            double     leading  = fontSize * 1.3;
+            double     padding  = 3.0;
+            double     maxW     = cw - padding * 2;
+            Font       font     = Font.font("System", weight, FontPosture.REGULAR, fontSize);
+            gc.setFont(font);
+            String align = txa.getTextAlign() == null ? "LEFT" : txa.getTextAlign();
+            gc.setTextAlign(switch (align) {
+                case "CENTER" -> TextAlignment.CENTER;
+                case "RIGHT"  -> TextAlignment.RIGHT;
+                default       -> TextAlignment.LEFT;
+            });
+            double lineX = switch (align) {
+                case "CENTER" -> cx + cw / 2.0;
+                case "RIGHT"  -> cx + cw - padding;
+                default       -> cx + padding;
+            };
+
+            java.util.List<String> lines = txa.isWrap()
+                    ? computeWrapLines(txa.getContent(), font, maxW)
+                    : java.util.Arrays.asList(txa.getContent().split("\\R", -1));
+
+            double blockH  = lines.size() * leading;
+            double startY  = switch (txa.getVerticalAlign()) {
+                case "MIDDLE" -> cy + (ch - blockH) / 2.0 + fontSize;
+                case "BOTTOM" -> cy + ch - blockH + fontSize - padding;
+                default       -> cy + fontSize + padding;
+            };
+
+            try { gc.setFill(Color.web(txa.getFontColor())); }
+            catch (Exception ignored) { gc.setFill(Color.BLACK); }
+
+            for (int i = 0; i < lines.size(); i++) {
+                double lineY = startY + i * leading;
+                if (lineY > cy + ch) break;
+                if (txa.isItalic()) {
+                    gc.save();
+                    double shear = 0.25;
+                    gc.transform(1, 0, -shear, 1, shear * lineY, 0);
+                }
+                gc.fillText(lines.get(i), lineX, lineY);
+                if (txa.isItalic()) gc.restore();
+            }
+            gc.setTextAlign(TextAlignment.LEFT);
+
         } else if (a instanceof CheckboxAnnotation ca) {
             if (!ca.isBorderless() || selected) {
                 gc.setStroke(selected ? Color.DODGERBLUE : Color.rgb(46, 125, 50, 0.9));
@@ -222,13 +282,15 @@ public class PdfCanvas extends Canvas {
                 onDoubleClick(e.getX(), e.getY());
             }
         });
-        // Shift + scroll wheel zooms; plain scroll falls through to ScrollPane
+        // Shift + scroll zooms. All scroll events are consumed here; the scroll-pan
+        // preference in MainWindow installs a filter on the ScrollPane that intercepts
+        // non-shift scroll events and translates them to vvalue/hvalue changes.
         setOnScroll(e -> {
             if (e.isShiftDown()) {
                 if (e.getDeltaY() > 0) zoomIn();
                 else if (e.getDeltaY() < 0) zoomOut();
-                e.consume();
             }
+            e.consume();
         });
     }
 
@@ -372,14 +434,11 @@ public class PdfCanvas extends Canvas {
 
                 if (getActiveTool() == Tool.IMAGE) {
                     promptImageFile((ImageAnnotation) ann);
+                } else if (ann instanceof TextAnnotation ta) {
+                    setActiveTool(Tool.SELECT);
+                    showInlineTextEditor(ta);
                 } else {
-                    // TEXT or CHECKBOX: open inline editor (for text) or switch to select
-                    if (ann instanceof TextAnnotation ta) {
-                        setActiveTool(Tool.SELECT);
-                        showInlineTextEditor(ta);
-                    } else {
-                        setActiveTool(Tool.SELECT);
-                    }
+                    setActiveTool(Tool.SELECT);
                 }
             }
             setCreating(false);
@@ -552,6 +611,7 @@ public class PdfCanvas extends Canvas {
     private Annotation createAnnotation(double pdfX, double pdfY, double w, double h) {
         return switch (getActiveTool()) {
             case TEXT     -> new TextAnnotation(pdfX, pdfY, w, h);
+            case TEXTAREA -> new TextareaAnnotation(pdfX, pdfY, w, h);
             case CHECKBOX -> new CheckboxAnnotation(pdfX, pdfY, w, h);
             case IMAGE    -> new ImageAnnotation(pdfX, pdfY, w, h);
             default       -> throw new IllegalStateException("Not a creation tool: " + getActiveTool());
@@ -572,6 +632,33 @@ public class PdfCanvas extends Canvas {
 
     private boolean near(double cx, double hx, double cy, double hy) {
         return Math.abs(cx - hx) < HANDLE_SIZE && Math.abs(cy - hy) < HANDLE_SIZE;
+    }
+
+    private java.util.List<String> computeWrapLines(String text, Font font, double maxW) {
+        var result = new java.util.ArrayList<String>();
+        if (text == null || text.isEmpty()) { result.add(""); return result; }
+        for (String paragraph : text.split("\\R", -1)) {
+            String[] words = paragraph.split("\\s+", -1);
+            var lineBuilder = new StringBuilder();
+            for (String word : words) {
+                if (word.isEmpty()) continue;
+                String candidate = lineBuilder.isEmpty() ? word : lineBuilder + " " + word;
+                if (measureTextWidth(candidate, font) <= maxW) {
+                    lineBuilder = new StringBuilder(candidate);
+                } else {
+                    if (!lineBuilder.isEmpty()) result.add(lineBuilder.toString());
+                    lineBuilder = new StringBuilder(word);
+                }
+            }
+            result.add(lineBuilder.toString());
+        }
+        return result;
+    }
+
+    private double measureTextWidth(String text, Font font) {
+        var t = new javafx.scene.text.Text(text);
+        t.setFont(font);
+        return t.getBoundsInLocal().getWidth();
     }
 
     private void promptImageFile(ImageAnnotation ia) {

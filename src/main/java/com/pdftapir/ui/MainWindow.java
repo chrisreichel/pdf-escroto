@@ -8,10 +8,12 @@ import com.pdftapir.service.PdfMergeService;
 import com.pdftapir.service.PdfPageService;
 import com.pdftapir.service.PdfFlattenExporter;
 import com.pdftapir.service.PdfSaver;
+import com.pdftapir.service.PreferencesService;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.scene.control.*;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
@@ -47,13 +49,17 @@ public class MainWindow {
     private final PdfEncryptionService  encryptionService  = new PdfEncryptionService();
     private final PdfMergeService       mergeService       = new PdfMergeService();
     private final PdfPageService        pageService        = new PdfPageService();
+    private final PreferencesService    preferencesService = new PreferencesService();
 
     private MenuItem decryptItem;
 
     private PdfDocument     openDocument;
     private PdfCanvas       canvas;
+    private EditorToolBar   toolbar;
     private PropertiesPanel propertiesPanel;
     private ScrollPane      scrollPane;
+    private boolean         scrollPanEnabled;
+    private final javafx.event.EventHandler<ScrollEvent> scrollPanFilter = this::handleScrollPan;
 
     /**
      * Tracks files for which the user has already decided their save intent
@@ -64,6 +70,7 @@ public class MainWindow {
 
     public MainWindow(Stage primaryStage) {
         this.primaryStage = primaryStage;
+        this.scrollPanEnabled = preferencesService.isScrollPan();
         buildUI();
         setupKeyboardShortcuts();
     }
@@ -122,7 +129,18 @@ public class MainWindow {
         zoomInItem.setOnAction(e  -> { if (canvas != null) canvas.zoomIn(); });
         zoomOutItem.setOnAction(e -> { if (canvas != null) canvas.zoomOut(); });
         fitPageItem.setOnAction(e -> { if (canvas != null && scrollPane != null) canvas.fitPage(scrollPane); });
-        var viewMenu = new Menu("View", null, zoomInItem, zoomOutItem, new SeparatorMenuItem(), fitPageItem);
+
+        var scrollPanItem = new CheckMenuItem("Scroll with mouse wheel");
+        scrollPanItem.setSelected(scrollPanEnabled);
+        scrollPanItem.setOnAction(e -> {
+            scrollPanEnabled = scrollPanItem.isSelected();
+            preferencesService.setScrollPan(scrollPanEnabled);
+            preferencesService.save();
+            applyScrollPanPreference();
+        });
+
+        var viewMenu = new Menu("View", null, zoomInItem, zoomOutItem, new SeparatorMenuItem(), fitPageItem,
+                new SeparatorMenuItem(), scrollPanItem);
 
         var encryptItem = new MenuItem("Encrypt\u2026");
         decryptItem     = new MenuItem("Decrypt");
@@ -497,8 +515,8 @@ public class MainWindow {
 
     /** Rebuilds the canvas UI for the current openDocument, showing the given page. */
     private void reloadCanvas(int pageIndex) {
-        var toolbar = new EditorToolBar(openDocument, undoManager);
-        canvas      = new PdfCanvas(openDocument, undoManager, propertiesPanel);
+        toolbar = new EditorToolBar(openDocument, undoManager);
+        canvas  = new PdfCanvas(openDocument, undoManager, propertiesPanel);
         toolbar.bindCanvas(canvas);
 
         var overlayPane = new javafx.scene.layout.Pane();
@@ -510,6 +528,7 @@ public class MainWindow {
 
         scrollPane = new ScrollPane(contentPane);
         scrollPane.setPannable(false);
+        applyScrollPanPreference();
 
         root.setTop(new VBox(buildMenuBar(), toolbar.getNode()));
         root.setCenter(scrollPane);
@@ -517,6 +536,53 @@ public class MainWindow {
         if (pageIndex >= 0 && pageIndex < openDocument.getPages().size()) {
             canvas.goToPage(pageIndex);
         }
+    }
+
+    /** Installs or removes the scroll-pan event filter on the current scrollPane. */
+    private void applyScrollPanPreference() {
+        if (scrollPane == null) return;
+        // Remove any existing filter first, then re-add if enabled
+        scrollPane.removeEventFilter(ScrollEvent.SCROLL, scrollPanFilter);
+        if (scrollPanEnabled) {
+            scrollPane.addEventFilter(ScrollEvent.SCROLL, scrollPanFilter);
+        }
+    }
+
+    private void handleScrollPan(ScrollEvent event) {
+        if (event.isShiftDown()) return; // leave shift+scroll for horizontal panning via canvas
+        boolean scrollingDown = event.getDeltaY() < 0;
+        double contentH  = scrollPane.getContent().getBoundsInLocal().getHeight();
+        double viewportH = scrollPane.getViewportBounds().getHeight();
+
+        if (contentH <= viewportH) {
+            // Page fits entirely in viewport — scroll directly navigates pages
+            if (toolbar != null) toolbar.navigatePage(scrollingDown ? 1 : -1);
+        } else {
+            double range    = contentH - viewportH;
+            double delta    = -event.getDeltaY() / range;
+            double newVvalue = scrollPane.getVvalue() + delta;
+
+            if (newVvalue > 1.0) {
+                // Reached bottom — go to next page and jump to its top
+                if (toolbar != null) {
+                    toolbar.navigatePage(1);
+                    scrollPane.setVvalue(0);
+                } else {
+                    scrollPane.setVvalue(1.0);
+                }
+            } else if (newVvalue < 0.0) {
+                // Reached top — go to previous page and jump to its bottom
+                if (toolbar != null) {
+                    toolbar.navigatePage(-1);
+                    scrollPane.setVvalue(1.0);
+                } else {
+                    scrollPane.setVvalue(0);
+                }
+            } else {
+                scrollPane.setVvalue(newVvalue);
+            }
+        }
+        event.consume();
     }
 
     private void showError(String header, Throwable t) {

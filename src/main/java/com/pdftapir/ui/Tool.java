@@ -9,4 +9,4 @@ package com.pdftapir.ui;
  *   <li>{@link #IMAGE} – places a new {@link com.pdftapir.model.ImageAnnotation}</li>
  * </ul>
  */
-public enum Tool { SELECT, TEXT, CHECKBOX, IMAGE }
+public enum Tool { SELECT, TEXT, TEXTAREA, CHECKBOX, IMAGE }
